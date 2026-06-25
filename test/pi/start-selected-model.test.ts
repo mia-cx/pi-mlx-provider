@@ -14,6 +14,22 @@ vi.mock("../../src/utils/spawn", () => ({
   })),
 }));
 
+async function createInstalledLmEnvironment(): Promise<string> {
+  const extensionDir = await mkdtemp(join(tmpdir(), "mlx-provider-"));
+  const pythonPath = join(
+    extensionDir,
+    "environments",
+    "lm",
+    "default",
+    ".venv",
+    "bin",
+    "python",
+  );
+  await mkdir(join(pythonPath, ".."), { recursive: true });
+  await writeFile(pythonPath, "");
+  return extensionDir;
+}
+
 describe("/mlx start", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -29,18 +45,7 @@ describe("/mlx start", () => {
     let commandHandler:
       | ((args: string, ctx: unknown) => Promise<void>)
       | undefined;
-    const extensionDir = await mkdtemp(join(tmpdir(), "mlx-provider-"));
-    const pythonPath = join(
-      extensionDir,
-      "environments",
-      "lm",
-      "default",
-      ".venv",
-      "bin",
-      "python",
-    );
-    await mkdir(join(pythonPath, ".."), { recursive: true });
-    await writeFile(pythonPath, "");
+    const extensionDir = await createInstalledLmEnvironment();
 
     const pi = {
       registerProvider: () => {},
@@ -66,6 +71,94 @@ describe("/mlx start", () => {
         setWidget: vi.fn(),
       },
     });
+
+    expect(spawnWithArgs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: expect.arrayContaining([
+          "--model",
+          "mlx-community/Qwen3-0.6B-4bit",
+        ]),
+      }),
+    );
+  });
+
+  it("forces configured max tokens onto MLX provider requests", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true })),
+    );
+
+    const handlers = new Map<string, (...args: never[]) => unknown>();
+    const extensionDir = await createInstalledLmEnvironment();
+    await writeFile(
+      join(extensionDir, "config.json"),
+      JSON.stringify({ maxTokens: 64_000 }),
+    );
+    const pi = {
+      registerProvider: () => {},
+      registerCommand: () => {},
+      on: (event: string, handler: (...args: never[]) => unknown) => {
+        handlers.set(event, handler);
+      },
+    };
+
+    await registerMlxExtension(pi as unknown as ExtensionAPI, {
+      extensionDir,
+      scanCachedModels: async () => [],
+    });
+
+    const payload = await handlers.get("before_provider_request")?.(
+      {
+        payload: {
+          model: "mlx-community/Qwen3-0.6B-4bit",
+          messages: [],
+          max_completion_tokens: 4_096,
+        },
+      } as never,
+      {
+        model: { provider: "mlx", id: "mlx-community/Qwen3-0.6B-4bit" },
+        ui: {
+          setStatus: vi.fn(),
+          setWidget: vi.fn(),
+        },
+      } as never,
+    );
+
+    expect(payload).toMatchObject({ max_tokens: 64_000 });
+    expect(payload).not.toHaveProperty("max_completion_tokens");
+  });
+
+  it("starts the selected MLX model on session start", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true })),
+    );
+
+    const handlers = new Map<string, (...args: never[]) => unknown>();
+    const extensionDir = await createInstalledLmEnvironment();
+    const pi = {
+      registerProvider: () => {},
+      registerCommand: () => {},
+      on: (event: string, handler: (...args: never[]) => unknown) => {
+        handlers.set(event, handler);
+      },
+    };
+
+    await registerMlxExtension(pi as unknown as ExtensionAPI, {
+      extensionDir,
+      scanCachedModels: async () => [],
+    });
+
+    await handlers.get("session_start")?.(
+      {} as never,
+      {
+        model: { provider: "mlx", id: "mlx-community/Qwen3-0.6B-4bit" },
+        ui: {
+          setStatus: vi.fn(),
+          setWidget: vi.fn(),
+        },
+      } as never,
+    );
 
     expect(spawnWithArgs).toHaveBeenCalledWith(
       expect.objectContaining({

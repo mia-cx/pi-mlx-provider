@@ -81,12 +81,18 @@ export async function registerPiExtension(
     runtime.updateStickyWidget(ctx, { selectedModelIsMlx: false });
   });
 
-  pi.on("before_provider_request", async (_event, ctx) => {
+  pi.on("before_provider_request", async (event, ctx) => {
     if (ctx.model?.provider !== PROVIDER) return;
     await runtime.ensureServer(ctx.model.id, ctx);
+    return runtime.applyMaxTokens(event.payload);
   });
 
   pi.on("session_start", async (_event, ctx) => {
+    if (ctx.model?.provider === PROVIDER) {
+      await runtime.ensureServer(ctx.model.id, ctx);
+      return;
+    }
+
     runtime.updateStickyWidget(ctx);
   });
 
@@ -258,6 +264,17 @@ class MlxExtensionRuntime {
           "warning",
         );
     }
+  }
+
+  applyMaxTokens(payload: unknown): unknown {
+    if (!isRecord(payload)) return payload;
+
+    const next: Record<string, unknown> = {
+      ...payload,
+      max_tokens: this.#maxTokens,
+    };
+    delete next.max_completion_tokens;
+    return next;
   }
 
   async ensureServer(modelId: string, ctx: ExtensionContext): Promise<void> {
@@ -1038,6 +1055,17 @@ function selectedMlxModelId(ctx: ExtensionContext): string | undefined {
   return ctx.model?.provider === PROVIDER ? ctx.model.id : undefined;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function renderProgressBar(percent: number): string {
+  const width = 20;
+  const clamped = Math.max(0, Math.min(100, percent));
+  const filled = Math.floor((clamped / 100) * width);
+  return `[${"█".repeat(filled)}${"░".repeat(width - filled)}] ${clamped}%`;
+}
+
 function truncatePreservingSuffix(text: string, maxWidth: number): string {
   if (visibleWidth(text) <= maxWidth) return text;
   if (maxWidth <= 1) return truncateToWidth(text, maxWidth, "");
@@ -1085,6 +1113,7 @@ function toProviderModel(
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow,
     maxTokens,
+    compat: { maxTokensField: "max_tokens" },
   };
 }
 

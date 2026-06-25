@@ -18,6 +18,7 @@ describe("registerMlxExtension", () => {
               contextWindow: 128_000,
               maxTokens: 128_000,
               reasoning: true,
+              compat: { maxTokensField: "max_tokens" },
             },
           ],
         });
