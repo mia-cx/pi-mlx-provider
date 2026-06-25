@@ -15,16 +15,16 @@ Runtime environments are installed under `~/.pi/agent/mlx-provider/environments/
 
 ## Install
 
-Install directly from this Git repository:
-
-```bash
-pi install git:https://github.com/mia-cx/pi-mlx-provider.git
-```
-
-Generic form:
+Install from a Git repository:
 
 ```bash
 pi install git:<repo_url>
+```
+
+For this repository:
+
+```bash
+pi install git:https://github.com/mia-cx/pi-mlx-provider.git
 ```
 
 Then start Pi normally:
