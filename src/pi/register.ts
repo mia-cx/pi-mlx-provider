@@ -142,6 +142,13 @@ type PrewarmModelSelection =
   | { kind: "cached"; modelId: string }
   | { kind: "download"; modelId: string };
 
+type ProgressIndicator = {
+  label: string;
+  startedAt: number;
+  startPercent: number;
+  maxPercent: number;
+};
+
 class MlxExtensionRuntime {
   readonly #pi: ExtensionAPI;
   readonly #extensionDir: string;
@@ -159,6 +166,8 @@ class MlxExtensionRuntime {
   #contextWindow = DEFAULT_CONTEXT_WINDOW;
   #maxTokens = DEFAULT_CONTEXT_WINDOW;
   #activity: string | null = null;
+  #progress: ProgressIndicator | null = null;
+  #progressTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(pi: ExtensionAPI, options: MlxPiExtensionOptions) {
     this.#pi = pi;
@@ -324,7 +333,7 @@ class MlxExtensionRuntime {
   async stopAll(): Promise<void> {
     await this.#processes.stopAll();
     this.#server.stopAll();
-    this.#activity = null;
+    this.#stopProgress();
   }
 
   async #handleContext(
@@ -601,12 +610,15 @@ class MlxExtensionRuntime {
       if (!ok) return false;
     }
 
-    this.#activity = `downloading ${modelId}`;
-    ctx.ui.setStatus("mlx", this.#activity);
-    this.updateStickyWidget(ctx);
+    this.#startProgress(ctx, `downloading ${modelId}`, {
+      startPercent: 0,
+      maxPercent: 95,
+    });
 
-    const result = await this.#pi.exec(plan.command, plan.args);
-    this.#activity = null;
+    const result = await this.#pi.exec(plan.command, plan.args).finally(() => {
+      this.#stopProgress();
+      this.updateStickyWidget(ctx);
+    });
 
     if (result.code !== 0) {
       ctx.ui.notify(
@@ -637,7 +649,7 @@ class MlxExtensionRuntime {
       options.selectedModelIsMlx ?? ctx.model?.provider === PROVIDER;
     const prewarmedModelId = status.prewarmed ? status.modelId : undefined;
 
-    if (!selectedModelIsMlx && !prewarmedModelId) {
+    if (!selectedModelIsMlx && !prewarmedModelId && !this.#activity) {
       ctx.ui.setWidget("mlx", undefined);
       ctx.ui.setStatus("mlx", undefined);
       return;
@@ -650,8 +662,48 @@ class MlxExtensionRuntime {
     ];
 
     if (this.#activity) lines.push(`Activity: ${this.#activity}`);
+    if (this.#progress) {
+      lines.push(`Progress: ${renderProgressBar(this.#progressPercent())}`);
+    }
     ctx.ui.setWidget("mlx", lines, { placement: "aboveEditor" });
-    ctx.ui.setStatus("mlx", `MLX ${status.status}`);
+    ctx.ui.setStatus("mlx", this.#activity ?? `MLX ${status.status}`);
+  }
+
+  #startProgress(
+    ctx: ExtensionContext,
+    label: string,
+    range: { startPercent: number; maxPercent: number },
+  ): void {
+    this.#stopProgress();
+    this.#activity = label;
+    this.#progress = {
+      label,
+      startedAt: Date.now(),
+      startPercent: range.startPercent === 0 ? 5 : range.startPercent,
+      maxPercent: range.maxPercent,
+    };
+    this.updateStickyWidget(ctx);
+    this.#progressTimer = setInterval(() => {
+      this.updateStickyWidget(ctx);
+    }, 1_000);
+  }
+
+  #stopProgress(): void {
+    if (this.#progressTimer) clearInterval(this.#progressTimer);
+    this.#progressTimer = null;
+    this.#progress = null;
+    this.#activity = null;
+  }
+
+  #progressPercent(): number {
+    if (!this.#progress) return 0;
+
+    const elapsedSeconds = (Date.now() - this.#progress.startedAt) / 1_000;
+    const fill = elapsedSeconds * 0.75;
+    return Math.min(
+      this.#progress.maxPercent,
+      Math.floor(this.#progress.startPercent + fill),
+    );
   }
 
   async #handleInit(
@@ -714,11 +766,26 @@ class MlxExtensionRuntime {
       version,
     });
 
-    for (const command of plan.commands) {
-      this.#activity = `${command.command} ${command.args.join(" ")}`;
-      ctx.ui.setStatus("mlx", this.#activity);
-      this.updateStickyWidget(ctx);
-      const result = await this.#pi.exec(command.command, command.args);
+    for (const [index, command] of plan.commands.entries()) {
+      const commandText = `${command.command} ${command.args.join(" ")}`;
+      this.#startProgress(
+        ctx,
+        `installing ${environment}/${version}: ${commandText}`,
+        {
+          startPercent: Math.floor((index / plan.commands.length) * 100),
+          maxPercent:
+            index === plan.commands.length - 1
+              ? 95
+              : Math.floor(((index + 1) / plan.commands.length) * 100),
+        },
+      );
+
+      const result = await this.#pi
+        .exec(command.command, command.args)
+        .finally(() => {
+          this.#stopProgress();
+          this.updateStickyWidget(ctx);
+        });
       if (result.code !== 0) {
         throw new Error(
           result.stderr ||

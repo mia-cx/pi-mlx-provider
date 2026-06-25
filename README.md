@@ -99,6 +99,8 @@ Token values accept plain numbers or suffixes such as `32k`, `128k`, or `1m`.
 
 `/mlx max memory <amount>` and `/mlx max models <count>` are parsed but not wired yet.
 
+During runtime installs and model downloads, the sticky MLX prompt header shows the active operation plus a slowly filling progress bar so long-running setup does not look stuck.
+
 ## How model discovery works
 
 The provider lists MLX-family models found in the Hugging Face cache:
