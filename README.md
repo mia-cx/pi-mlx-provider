@@ -76,7 +76,7 @@ Example:
 | Command | Description |
 | --- | --- |
 | `/model mlx/<huggingface-model-id>` | Select a local MLX model through Pi's normal model picker command. |
-| `/mlx start <huggingface-model-id>` | Start/prewarm the local runtime server for a model. |
+| `/mlx start [huggingface-model-id]` | Start/prewarm the local runtime server for a model. If omitted, uses the selected `mlx` model. |
 | `/mlx stop` | Stop all extension-managed MLX runtime processes. |
 | `/mlx reprobe <huggingface-model-id>` | No-op compatibility command; server startup already verifies runtime readiness. |
 

@@ -204,11 +204,15 @@ class MlxExtensionRuntime {
         ctx.ui.notify(this.#statusText(), "info");
         return;
       case "start": {
-        if (!command.modelId) {
-          ctx.ui.notify("Usage: /mlx start <model-id>", "warning");
+        const modelId = command.modelId ?? selectedMlxModelId(ctx);
+        if (!modelId) {
+          ctx.ui.notify(
+            "Usage: /mlx start <model-id> (or select an MLX model first)",
+            "warning",
+          );
           return;
         }
-        await this.ensureServer(command.modelId, ctx);
+        await this.ensureServer(modelId, ctx);
         return;
       }
       case "stop":
@@ -1028,6 +1032,10 @@ function toSelectItem<T extends string>(item: MenuItem<T>): SelectItem {
     label: item.label,
     ...(item.detail ? { description: item.detail } : {}),
   };
+}
+
+function selectedMlxModelId(ctx: ExtensionContext): string | undefined {
+  return ctx.model?.provider === PROVIDER ? ctx.model.id : undefined;
 }
 
 function truncatePreservingSuffix(text: string, maxWidth: number): string {
