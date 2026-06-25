@@ -15,13 +15,7 @@ Runtime environments are installed under `~/.pi/agent/mlx-provider/environments/
 
 ## Install
 
-Install from a Git repository:
-
-```bash
-pi install git:<repo_url>
-```
-
-For this repository:
+Install from this git repository:
 
 ```bash
 pi install git:https://github.com/mia-cx/pi-mlx-provider.git
